@@ -8,12 +8,14 @@ var weatherStationService;
 var WeatherConditionValue
 var WeatherCondition
 var WeatherStation
+var temperatureService;
+var humidityService;
 
 module.exports = function (homebridge) {
     Service = homebridge.hap.Service;
     Characteristic = homebridge.hap.Characteristic;
     homebridge.registerAccessory("homebridge-wunderground", "WUWeatherStation", WUWeatherStation);
-	
+
     WeatherConditionValue = function() {
       Characteristic.call(this, 'Weather Condition Value', 'cd65a9ab-85ad-494a-b2bd-2f380084134c');
       this.setProps({
@@ -26,7 +28,7 @@ module.exports = function (homebridge) {
       this.value = this.getDefaultValue();
     };
     inherits(WeatherConditionValue, Characteristic);
-	
+
     WeatherCondition = function() {
       Characteristic.call(this, 'Weather Condition', 'cd65a9ab-85ad-494a-b2bd-2f380084134d');
       this.setProps({
@@ -36,7 +38,7 @@ module.exports = function (homebridge) {
       this.value = this.getDefaultValue();
     };
     inherits(WeatherCondition, Characteristic);
-	
+
     WeatherStation = function(displayName, subtype) {
   	  Service.call(this, displayName, 'debf1b79-312e-47f7-bf82-993d9950f3a2', subtype);
 
@@ -59,7 +61,7 @@ function WUWeatherStation(log, config) {
     this.name = config['name'];
     this.location = config['location'];
     this.timestampOfLastUpdate = 0;
-	
+
     this.informationService = new Service.AccessoryInformation();
 
     this.informationService
@@ -67,8 +69,8 @@ function WUWeatherStation(log, config) {
             .setCharacteristic(Characteristic.Model, "Weather Underground")
             .setCharacteristic(Characteristic.SerialNumber, this.location);
 
-	this.weatherStationService = new WeatherStation(this.name)	
-	
+	this.weatherStationService = new WeatherStation(this.name)
+
 	this.updateWeatherConditions();
 }
 
@@ -80,19 +82,36 @@ WUWeatherStation.prototype = {
     },
 
     getServices: function () {
-        return [this.informationService, this.weatherStationService];
+
+        temperatureService = new Service.TemperatureSensor(this.name);
+        temperatureService
+                .getCharacteristic(Characteristic.CurrentTemperature)
+
+        temperatureService
+                .getCharacteristic(Characteristic.CurrentTemperature)
+                .setProps({minValue: -50});
+
+        temperatureService
+                .getCharacteristic(Characteristic.CurrentTemperature)
+                .setProps({maxValue: 50});
+
+        humidityService = new Service.HumiditySensor(this.name);
+        humidityService
+                .getCharacteristic(Characteristic.CurrentRelativeHumidity)
+
+        return [this.informationService, this.weatherStationService, temperatureService, humidityService];
     },
-	
+
 	updateWeatherConditions: function() {
 		var that = this
-		
+
 	    that.wunderground.conditions().request(that.location, function(err, response){
 			if (!err && response['current_observation'] && response['current_observation']['temp_c']) {
 				that.timestampOfLastUpdate = Date.now() / 1000 | 0;
 	    		that.temperature = response['current_observation']['temp_c'];
 				let conditionIcon = response['current_observation']['icon']
 				that.condition = response['current_observation']['weather']
-				switch (conditionIcon) {									
+				switch (conditionIcon) {
 				case "rain":
 				case "tstorm":
 				case "tstorms":
@@ -108,21 +127,23 @@ WUWeatherStation.prototype = {
 					break;
 				}
 	   			that.humidity = parseInt(response['current_observation']['relative_humidity'].substr(0, response['current_observation']['relative_humidity'].length-1));
-			
+
 				let humidityString = response['current_observation']['relative_humidity']
 				let temperatureString = response['current_observation']['temperature_string']
 				let uv = response['current_observation']['UV']
 				that.log("Current Weather Conditions: " + that.condition + ", " + temperatureString + ", " + humidityString + " humidity, UV: " + uv)
-			
+
 				that.weatherStationService.setCharacteristic(WeatherConditionValue,that.conditionValue);
 				that.weatherStationService.setCharacteristic(WeatherCondition,that.condition);
 				that.weatherStationService.setCharacteristic(Characteristic.CurrentTemperature, that.temperature);
 				that.weatherStationService.setCharacteristic(Characteristic.CurrentRelativeHumidity, that.humidity);
+				temperatureService.setCharacteristic(Characteristic.CurrentTemperature, that.temperature);
+				humidityService.setCharacteristic(Characteristic.CurrentRelativeHumidity, that.humidity);
 			} else {
 				that.log("Error retrieving the weather conditions")
 			}
 	    });
-		
+
 		// wunderground limits to 500 api calls a day. Making a call every 4 minutes == 360 calls
 		setTimeout(this.updateWeatherConditions.bind(this), 4 * 60 * 1000);
 	}
